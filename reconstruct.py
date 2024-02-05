@@ -117,6 +117,49 @@ def drawlines(img1, img2, lines, pts1, pts2):
     return img1, img2
 
 
+def find_epipolar_lines(images, pts1, pts2, F):
+
+    # Find epilines corresponding to points in right image (second image) and
+    # drawing its lines on left image
+    lines1 = cv2.computeCorrespondEpilines(pts2, 2, F)
+    lines1 = lines1.reshape(-1, 3)
+
+    img1_drawn, _ = drawlines(images[0], images[1], lines1, pts1, pts2)
+    # Find epilines corresponding to points in left image (first image) and
+    # drawing its lines on right image
+    lines2 = cv2.computeCorrespondEpilines(pts1, 1, F)
+    lines2 = lines2.reshape(-1, 3)
+
+    img2_drawn, _ = drawlines(images[1], images[0], lines2, pts2, pts1)
+    plt.subplot(121), plt.imshow(img1_drawn)
+    plt.subplot(122), plt.imshow(img2_drawn)
+    plt.show()
+
+
+def get_projection_matrices(K_matrix, F):
+    E = np.dot(np.dot(K_matrix.T, F), K_matrix)
+
+    # Perform SVD on the essential matrix
+    U, S, Vt = np.linalg.svd(E)
+
+    # Ensure that the determinant of U and Vt is positive
+    if np.linalg.det(U) < 0:
+        U *= -1
+    if np.linalg.det(Vt) < 0:
+        Vt *= -1
+
+    # Extract the rotation and translation
+    R = np.dot(U, np.dot(np.diag([1, 1, 0]), Vt))
+    T = U[:, 2]
+
+    # Camera projection matrix P1 (assuming the first camera is at the origin)
+    P1 = K_matrix @ np.hstack((np.eye(3), np.zeros((3, 1))))
+
+    # Camera projection matrix P2
+    P2 = K_matrix @ np.hstack((R, T.reshape(-1, 1)))
+    return P1, P2
+
+
 def main():
     K_matrix, dist = calibrate_camera(chessboard_images_path="webcamera-chess")
 
@@ -138,47 +181,10 @@ def main():
     F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.FM_RANSAC)
     print(f"{K_matrix=}")
     print(f"{F=}")
-    # We select only inlier points
-    # pts1 = pts1[mask.ravel() == 1]
-    # pts2 = pts2[mask.ravel() == 1]
 
-    # Find epilines corresponding to points in right image (second image) and
-    # drawing its lines on left image
-    # lines1 = cv2.computeCorrespondEpilines(pts2, 2, F)
-    # lines1 = lines1.reshape(-1, 3)
+    # epipolar_lines = find_epipolar_lines(images, pts1, pts2, F)
 
-    # img1_drawn, _ = drawlines(images[0], images[1], lines1, pts1, pts2)
-    # Find epilines corresponding to points in left image (first image) and
-    # drawing its lines on right image
-    # lines2 = cv2.computeCorrespondEpilines(pts1, 1, F)
-    # lines2 = lines2.reshape(-1, 3)
-
-    # img2_drawn, _ = drawlines(images[1], images[0], lines2, pts2, pts1)
-    # plt.subplot(121), plt.imshow(img1_drawn)
-    # plt.subplot(122), plt.imshow(img2_drawn)
-    # plt.show()
-
-    E = np.dot(np.dot(K_matrix.T, F), K_matrix)
-
-    # Perform SVD on the essential matrix
-    U, S, Vt = np.linalg.svd(E)
-
-    # Ensure that the determinant of U and Vt is positive
-    if np.linalg.det(U) < 0:
-        U *= -1
-    if np.linalg.det(Vt) < 0:
-        Vt *= -1
-
-    # Extract the rotation and translation
-    R = np.dot(U, np.dot(np.diag([1, 1, 0]), Vt))
-    T = U[:, 2]
-
-    # Camera projection matrix P1 (assuming the first camera is at the origin)
-    P1 = K_matrix @ np.hstack((np.eye(3), np.zeros((3, 1))))
-
-    # Camera projection matrix P2
-    P2 = K_matrix @ np.hstack((R, T.reshape(-1, 1)))
-
+    P1, P2 = get_projection_matrices(K_matrix, F)
     print(f"{P1=}")
     print(f"{P2=}")
 
@@ -192,11 +198,13 @@ def main():
     # Calculate Euclidean distances of each point to the position of the camera (0, 0, 0)
     depths = np.sqrt(np.sum(points_3d**2, axis=0))
 
+    # Uncalibrated depth scale
     min_depth = np.min(depths)
     max_depth = np.max(depths)
     scaled_depths = 255 * (depths - min_depth) / (max_depth - min_depth)
     print(f"{scaled_depths=}")
 
+    # Visualize depth on the first image
     img = cv2.imread("images/image3.jpg")
     for i, p in enumerate(pts1):
         color = int(scaled_depths[i])
