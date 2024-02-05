@@ -49,56 +49,18 @@ def calibrate_camera(chessboard_images_path):
     return mtx, dist
 
 
-def get_images_with_homography(K_matrix, dist):
-
-    width = 1280
-    heigth = 720
-    video = cv2.VideoCapture(1)
-
-    video.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-    video.set(cv2.CAP_PROP_FRAME_HEIGHT, heigth)
-
+def get_homography(images):
     options = apriltag.DetectorOptions(families="tag16h5")
     detector = apriltag.Detector(options)
 
-    # new_matrix, roi = cv2.getOptimalNewCameraMatrix(
-    #     K_matrix, dist, (width, heigth), 1, (width, heigth)
-    # )
+    homographies = []
 
-    images_with_homography = []
+    for image in images:
+        detections = detector.detect(image)
+        if detections:
+            homographies.append(detections[0].homography)
 
-    i = 1
-    while video.isOpened():
-        check, frame = video.read()
-        cv2.imshow("Capturing", frame)
-
-        undistorted_frame = cv2.undistort(frame, K_matrix, dist, None, K_matrix)
-        gray_frame = cv2.cvtColor(undistorted_frame, cv2.COLOR_BGR2GRAY)
-
-        detections = detector.detect(gray_frame)
-
-        # if detections:
-        #     print(detections[0].homography)
-
-        key = cv2.waitKey(1)
-        if key == 27:
-            break
-        elif key == 32:
-            images_with_homography.append(
-                {"image": gray_frame, "homography": detections[0].homography}
-            )
-            cv2.imwrite(f"frame-{i}.jpg", gray_frame)
-            print(detections[0].homography)
-
-            if len(images_with_homography) == 2:
-                break
-        else:
-            cv2.imshow("Please press the escape(esc) key to stop the video", frame)
-
-        i += 1
-
-    video.release()
-    return images_with_homography
+    return homographies
 
 
 def find_matching_points(images):
@@ -158,8 +120,6 @@ def drawlines(img1, img2, lines, pts1, pts2):
 def main():
     K_matrix, dist = calibrate_camera(chessboard_images_path="webcamera-chess")
 
-    # images_with_homography = get_images_with_homography(K_matrix, dist)
-
     images = [
         cv2.imread("images/image3.jpg", cv2.IMREAD_GRAYSCALE),
         cv2.imread("images/image4.jpg", cv2.IMREAD_GRAYSCALE),
@@ -167,11 +127,15 @@ def main():
     images[0] = cv2.undistort(images[0], K_matrix, dist, None, K_matrix)
     images[1] = cv2.undistort(images[1], K_matrix, dist, None, K_matrix)
 
+    homographies = get_homography(images)
+    print("H", f"{homographies[0]}")
+    print("H", f"{homographies[1]}")
+
     points1, points2, matches = find_matching_points(images)
     pts1 = np.int32(points1)
     pts2 = np.int32(points2)
 
-    F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.FM_LMEDS)
+    F, mask = cv2.findFundamentalMat(pts1, pts2, cv2.FM_RANSAC)
     print(f"{K_matrix=}")
     print(f"{F=}")
     # We select only inlier points
